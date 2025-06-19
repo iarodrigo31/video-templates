@@ -1,0 +1,53 @@
+name: Create Video with Remotion
+
+on:
+  repository_dispatch:
+    types: [create_video]
+
+jobs:
+  create-video:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install Dependencies
+        run: |
+          npm ci
+          
+      - name: Prepare Video Data
+        run: |
+          echo '${{ toJson(github.event.client_payload.video_data) }}' > video-data.json
+          cat video-data.json
+          
+      - name: Download Background Image
+        run: |
+          curl -o background.jpg "${{ github.event.client_payload.video_data.imagen.url }}"
+          
+      - name: Render Video
+        run: |
+          npx remotion render Root video-output --props=./video-data.json
+          
+      - name: Upload Video Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video-${{ github.run_number }}
+          path: video-output.mp4
+          
+      - name: Notify Completion (opcional)
+        if: github.event.client_payload.webhook_url
+        run: |
+          curl -X POST "${{ github.event.client_payload.webhook_url }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "status": "complete",
+              "video_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "run_id": "${{ github.run_id }}"
+            }'

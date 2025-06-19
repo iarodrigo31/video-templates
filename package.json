@@ -1,0 +1,18 @@
+{
+  "name": "video-templates",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "remotion build",
+    "render": "remotion render",
+    "preview": "remotion preview",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "remotion": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/player": "^4.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "main": "src/index.ts"
+}
