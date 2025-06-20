@@ -5,49 +5,99 @@ on:
     types: [create_video]
 
 jobs:
-  create-video:
+  generate-video:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
         
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
+    - name: Install dependencies
+      run: |
+        npm init -y
+        npm install remotion @remotion/cli @remotion/bundler
+        
+    - name: Create video data file
+      run: |
+        echo '${{ toJson(github.event.client_payload.video_data) }}' > video-data.json
+        
+    - name: Generate Remotion project
+      run: |
+        cat > src/Video.jsx << 'EOF'
+        import {AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate} from 'remotion';
+        
+        export const MyVideo = () => {
+          const frame = useCurrentFrame();
+          const {fps, durationInFrames} = useVideoConfig();
           
-      - name: Install Dependencies
-        run: |
-          npm ci
+          const videoData = require('../video-data.json');
+          const scenes = videoData.remotion_config.scenes;
           
-      - name: Prepare Video Data
-        run: |
-          echo '${{ toJson(github.event.client_payload.video_data) }}' > video-data.json
-          cat video-data.json
+          const currentTime = frame / fps;
+          const currentScene = scenes.find(scene => 
+            currentTime >= scene.start && currentTime < scene.start + scene.duration
+          ) || scenes[0];
           
-      - name: Download Background Image
-        run: |
-          curl -o background.jpg "${{ github.event.client_payload.video_data.imagen.url }}"
+          const opacity = interpolate(frame, [0, 30], [0, 1], {extrapolateRight: 'clamp'});
           
-      - name: Render Video
-        run: |
-          npx remotion render Root video-output --props=./video-data.json
-          
-      - name: Upload Video Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-video-${{ github.run_number }}
-          path: video-output.mp4
-          
-      - name: Notify Completion (opcional)
-        if: github.event.client_payload.webhook_url
-        run: |
-          curl -X POST "${{ github.event.client_payload.webhook_url }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "status": "complete",
-              "video_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "run_id": "${{ github.run_id }}"
-            }'
+          return (
+            <AbsoluteFill style={{
+              background: currentScene.background === 'gradient' 
+                ? `linear-gradient(45deg, ${videoData.template_config.background_color}, ${videoData.template_config.accent_color})`
+                : currentScene.background,
+              justifyContent: 'center',
+              alignItems: 'center',
+              fontFamily: 'Arial Black, sans-serif',
+              color: 'white',
+              textAlign: 'center',
+              padding: '50px'
+            }}>
+              <div style={{opacity}}>
+                <div style={{fontSize: '150px', marginBottom: '50px'}}>
+                  {currentScene.emoji}
+                </div>
+                <div style={{
+                  fontSize: '60px',
+                  textShadow: '3px 3px 6px rgba(0,0,0,0.7)',
+                  lineHeight: '1.2',
+                  maxWidth: '900px'
+                }}>
+                  {currentScene.text}
+                </div>
+              </div>
+            </AbsoluteFill>
+          );
+        };
+        EOF
+        
+        mkdir -p src
+        
+    - name: Create Remotion config
+      run: |
+        cat > src/index.js << 'EOF'
+        import {registerRoot} from 'remotion';
+        import {MyVideo} from './Video';
+        
+        registerRoot(() => <MyVideo />);
+        EOF
+        
+    - name: Render video
+      run: |
+        npx remotion render src/index.js MyVideo out/video.mp4 --props='./video-data.json'
+        
+    - name: Upload video artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: generated-video
+        path: out/video.mp4
+        
+    - name: Notify completion
+      run: |
+        curl -X POST "${{ github.event.client_payload.webhook_url }}" \
+        -H "Content-Type: application/json" \
+        -d '{"status": "completed", "download_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
